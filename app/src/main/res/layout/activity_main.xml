@@ -2,23 +2,139 @@
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/screen_bg">
+    android:background="@color/screen_bg"
+    android:fillViewport="true">
+
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:padding="20dp">
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:text="Road Surface Logger" android:textColor="@color/text_primary" android:textSize="28sp" android:textStyle="bold" />
-        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content" android:layout_marginTop="4dp" android:text="Raw IMU + GNSS data acquisition" android:textColor="@color/text_secondary" android:textSize="15sp" />
-        <TextView android:id="@+id/statusText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="20dp" android:text="Idle" android:textColor="@color/text_primary" android:textSize="20sp" android:textStyle="bold" />
-        <TextView android:id="@+id/sessionText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="8dp" android:text="Session: -" android:textColor="@color/text_secondary" />
-        <TextView android:id="@+id/imuText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="12dp" android:text="IMU events: 0" android:textColor="@color/text_primary" android:textSize="16sp" />
-        <TextView android:id="@+id/gpsText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="GNSS: waiting" android:textColor="@color/text_primary" android:textSize="16sp" />
-        <TextView android:id="@+id/durationText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="6dp" android:text="Duration: 00:00:00" android:textColor="@color/text_primary" android:textSize="16sp" />
-        <Button android:id="@+id/startButton" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="20dp" android:text="START RECORDING" />
-        <Button android:id="@+id/markButton" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="8dp" android:enabled="false" android:text="MARK EVENT" />
-        <Button android:id="@+id/stopButton" android:layout_width="match_parent" android:layout_height="56dp" android:layout_marginTop="8dp" android:enabled="false" android:text="STOP RECORDING" />
-        <Button android:id="@+id/exportButton" android:layout_width="match_parent" android:layout_height="52dp" android:layout_marginTop="8dp" android:text="EXPORT LAST SESSION (.ZIP)" />
-        <TextView android:id="@+id/infoText" android:layout_width="match_parent" android:layout_height="wrap_content" android:layout_marginTop="16dp" android:text="Target IMU sampling: 100 Hz. GPS is logged independently." android:textColor="@color/text_secondary" android:textSize="13sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="Road Surface Logger"
+            android:textColor="@color/text_primary"
+            android:textSize="28sp"
+            android:textStyle="bold" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="4dp"
+            android:text="Raw IMU + GNSS data acquisition"
+            android:textColor="@color/text_secondary"
+            android:textSize="15sp" />
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="20dp"
+            android:background="@color/card_bg"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="STATUS"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/statusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Idle"
+                android:textColor="@color/text_primary"
+                android:textSize="20sp"
+                android:textStyle="bold" />
+
+            <TextView
+                android:id="@+id/sessionText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Session: -"
+                android:textColor="@color/text_secondary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:id="@+id/imuText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                android:text="IMU samples: 0"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/gpsText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="GNSS: waiting"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+
+            <TextView
+                android:id="@+id/durationText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Duration: 00:00:00"
+                android:textColor="@color/text_primary"
+                android:textSize="16sp" />
+        </LinearLayout>
+
+        <Button
+            android:id="@+id/startButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="20dp"
+            android:text="START RECORDING"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/markButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="MARK EVENT"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/stopButton"
+            android:layout_width="match_parent"
+            android:layout_height="56dp"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="STOP RECORDING"
+            android:textSize="16sp"
+            android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/exportButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:text="EXPORT LAST SESSION (.ZIP)"
+            android:textSize="14sp" />
+
+        <TextView
+            android:id="@+id/infoText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="16dp"
+            android:text="Sampling target: 100 Hz. Actual sensor timing is preserved using the sensor timestamp. GPS is logged independently. Use MARK EVENT only when operated safely by a passenger or while stationary."
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
+
     </LinearLayout>
 </ScrollView>

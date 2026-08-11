@@ -59,6 +59,12 @@ class MainActivity : Activity() {
     private lateinit var rateText: TextView
     private lateinit var speedText: TextView
     private lateinit var storageText: TextView
+    private lateinit var accelValueText: TextView
+    private lateinit var gyroValueText: TextView
+    private lateinit var linearValueText: TextView
+    private lateinit var gravityValueText: TextView
+    private lateinit var gpsPositionText: TextView
+    private lateinit var gpsDetailText: TextView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
     private lateinit var potholeButton: Button
@@ -92,6 +98,12 @@ class MainActivity : Activity() {
         rateText = findViewById(R.id.rateText)
         speedText = findViewById(R.id.speedText)
         storageText = findViewById(R.id.storageText)
+        accelValueText = findViewById(R.id.accelValueText)
+        gyroValueText = findViewById(R.id.gyroValueText)
+        linearValueText = findViewById(R.id.linearValueText)
+        gravityValueText = findViewById(R.id.gravityValueText)
+        gpsPositionText = findViewById(R.id.gpsPositionText)
+        gpsDetailText = findViewById(R.id.gpsDetailText)
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
         potholeButton = findViewById(R.id.potholeButton)
@@ -307,9 +319,27 @@ class MainActivity : Activity() {
         val accuracy = prefs.getFloat(LoggerService.KEY_GPS_ACCURACY, Float.NaN)
         val provider = prefs.getString(LoggerService.KEY_GPS_PROVIDER, "GPS")
         val speedMps = prefs.getFloat(LoggerService.KEY_SPEED_MPS, Float.NaN)
+        val altitudeM = prefs.getFloat(LoggerService.KEY_ALTITUDE_M, Float.NaN)
+        val bearingDeg = prefs.getFloat(LoggerService.KEY_BEARING_DEG, Float.NaN)
+        val gpsFixElapsedMs = prefs.getLong(LoggerService.KEY_GPS_FIX_ELAPSED_MS, 0L)
         val accelHz = prefs.getFloat(LoggerService.KEY_ACCEL_HZ, Float.NaN)
         val gyroHz = prefs.getFloat(LoggerService.KEY_GYRO_HZ, Float.NaN)
         val sessionBytes = prefs.getLong(LoggerService.KEY_SESSION_BYTES, 0L)
+
+        val accelX = prefs.getFloat(LoggerService.KEY_ACCEL_X, Float.NaN)
+        val accelY = prefs.getFloat(LoggerService.KEY_ACCEL_Y, Float.NaN)
+        val accelZ = prefs.getFloat(LoggerService.KEY_ACCEL_Z, Float.NaN)
+        val accelAccuracy = prefs.getInt(LoggerService.KEY_ACCEL_ACCURACY, -1)
+        val gyroX = prefs.getFloat(LoggerService.KEY_GYRO_X, Float.NaN)
+        val gyroY = prefs.getFloat(LoggerService.KEY_GYRO_Y, Float.NaN)
+        val gyroZ = prefs.getFloat(LoggerService.KEY_GYRO_Z, Float.NaN)
+        val gyroAccuracy = prefs.getInt(LoggerService.KEY_GYRO_ACCURACY, -1)
+        val linearX = prefs.getFloat(LoggerService.KEY_LINEAR_X, Float.NaN)
+        val linearY = prefs.getFloat(LoggerService.KEY_LINEAR_Y, Float.NaN)
+        val linearZ = prefs.getFloat(LoggerService.KEY_LINEAR_Z, Float.NaN)
+        val gravityX = prefs.getFloat(LoggerService.KEY_GRAVITY_X, Float.NaN)
+        val gravityY = prefs.getFloat(LoggerService.KEY_GRAVITY_Y, Float.NaN)
+        val gravityZ = prefs.getFloat(LoggerService.KEY_GRAVITY_Z, Float.NaN)
 
         statusText.text = if (recording) "● RECORDING" else "Idle"
         sessionText.text = buildString {
@@ -327,6 +357,28 @@ class MainActivity : Activity() {
         speedText.text = if (speedMps.isNaN()) "Speed: -" else String.format(Locale.US, "Speed: %.1f km/h", speedMps * 3.6f)
         storageText.text = String.format(Locale.US, "Session size: %.2f MB", sessionBytes / (1024.0 * 1024.0))
 
+        accelValueText.text = "Accelerometer (m/s²)\n${formatVector(accelX, accelY, accelZ)} • accuracy ${formatSensorAccuracy(accelAccuracy)}"
+        gyroValueText.text = "Gyroscope (rad/s)\n${formatVector(gyroX, gyroY, gyroZ)} • accuracy ${formatSensorAccuracy(gyroAccuracy)}"
+        linearValueText.text = "Linear acceleration (m/s²)\n${formatVector(linearX, linearY, linearZ)}"
+        gravityValueText.text = "Gravity (m/s²)\n${formatVector(gravityX, gravityY, gravityZ)}"
+
+        gpsPositionText.text = if (lat != null && lon != null) {
+            "Latitude : $lat\nLongitude: $lon"
+        } else {
+            "Latitude : -\nLongitude: -"
+        }
+
+        val fixAgeMs = if (gpsFixElapsedMs > 0L) {
+            (SystemClock.elapsedRealtime() - gpsFixElapsedMs).coerceAtLeast(0L)
+        } else {
+            -1L
+        }
+        gpsDetailText.text = buildString {
+            append("Altitude: ${formatNumber(altitudeM, 1, "m")} • Speed: ${formatSpeed(speedMps)}\n")
+            append("Bearing: ${formatNumber(bearingDeg, 1, "°")} • Accuracy: ${formatAccuracy(accuracy)}")
+            append(" • Fix age: ${formatAge(fixAgeMs)}")
+        }
+
         val durationMs = if (recording && startElapsed > 0) SystemClock.elapsedRealtime() - startElapsed else 0L
         durationText.text = "Duration: ${formatDuration(durationMs)}"
 
@@ -338,6 +390,33 @@ class MainActivity : Activity() {
     }
 
     private fun formatHz(value: Float): String = if (value.isNaN() || value <= 0f) "-" else String.format(Locale.US, "%.1f Hz", value)
+
+    private fun formatVector(x: Float, y: Float, z: Float): String {
+        if (x.isNaN() || y.isNaN() || z.isNaN()) return "X: -   Y: -   Z: -"
+        return String.format(Locale.US, "X: %+.4f   Y: %+.4f   Z: %+.4f", x, y, z)
+    }
+
+    private fun formatSensorAccuracy(value: Int): String = if (value < 0) "-" else value.toString()
+
+    private fun formatNumber(value: Float, decimals: Int, suffix: String): String {
+        if (value.isNaN()) return "-"
+        return String.format(Locale.US, "%.${decimals}f %s", value, suffix)
+    }
+
+    private fun formatSpeed(speedMps: Float): String {
+        if (speedMps.isNaN()) return "-"
+        return String.format(Locale.US, "%.1f km/h", speedMps * 3.6f)
+    }
+
+    private fun formatAccuracy(accuracy: Float): String {
+        if (accuracy.isNaN()) return "-"
+        return String.format(Locale.US, "±%.1f m", accuracy)
+    }
+
+    private fun formatAge(ageMs: Long): String {
+        if (ageMs < 0) return "-"
+        return String.format(Locale.US, "%.1f s", ageMs / 1000.0)
+    }
 
     private fun formatDuration(ms: Long): String {
         val totalSeconds = ms / 1000

@@ -65,6 +65,8 @@ class MainActivity : Activity() {
     private lateinit var gravityValueText: TextView
     private lateinit var gpsPositionText: TextView
     private lateinit var gpsDetailText: TextView
+    private lateinit var orientationText: TextView
+    private lateinit var orientation3DView: Orientation3DView
     private lateinit var startButton: Button
     private lateinit var stopButton: Button
     private lateinit var potholeButton: Button
@@ -73,6 +75,7 @@ class MainActivity : Activity() {
     private lateinit var otherButton: Button
     private lateinit var exportButton: Button
     private lateinit var historyButton: Button
+    private lateinit var routeMapButton: Button
 
     private val uiHandler = Handler(Looper.getMainLooper())
     private var startAfterPermission = false
@@ -82,7 +85,7 @@ class MainActivity : Activity() {
     private val uiTick = object : Runnable {
         override fun run() {
             updateUiFromState()
-            uiHandler.postDelayed(this, 500)
+            uiHandler.postDelayed(this, 200)
         }
     }
 
@@ -104,6 +107,8 @@ class MainActivity : Activity() {
         gravityValueText = findViewById(R.id.gravityValueText)
         gpsPositionText = findViewById(R.id.gpsPositionText)
         gpsDetailText = findViewById(R.id.gpsDetailText)
+        orientationText = findViewById(R.id.orientationText)
+        orientation3DView = findViewById(R.id.orientation3DView)
         startButton = findViewById(R.id.startButton)
         stopButton = findViewById(R.id.stopButton)
         potholeButton = findViewById(R.id.potholeButton)
@@ -112,6 +117,7 @@ class MainActivity : Activity() {
         otherButton = findViewById(R.id.otherButton)
         exportButton = findViewById(R.id.exportButton)
         historyButton = findViewById(R.id.historyButton)
+        routeMapButton = findViewById(R.id.routeMapButton)
 
         startButton.setOnClickListener { showExperimentDialog() }
         stopButton.setOnClickListener {
@@ -123,6 +129,7 @@ class MainActivity : Activity() {
         otherButton.setOnClickListener { sendMarker("other") }
         exportButton.setOnClickListener { exportLastSession() }
         historyButton.setOnClickListener { showSessionHistory() }
+        routeMapButton.setOnClickListener { openCurrentRouteMap() }
 
         uiHandler.post(uiTick)
     }
@@ -241,9 +248,7 @@ class MainActivity : Activity() {
             Manifest.permission.ACCESS_FINE_LOCATION,
             Manifest.permission.ACCESS_COARSE_LOCATION
         )
-        if (Build.VERSION.SDK_INT >= 33) {
-            permissions += Manifest.permission.POST_NOTIFICATIONS
-        }
+        if (Build.VERSION.SDK_INT >= 33) permissions += Manifest.permission.POST_NOTIFICATIONS
         requestPermissions(permissions.toTypedArray(), REQ_PERMISSIONS)
     }
 
@@ -313,6 +318,7 @@ class MainActivity : Activity() {
         val experimentId = prefs.getString(LoggerService.KEY_EXPERIMENT_ID, null)
         val imuCount = prefs.getLong(LoggerService.KEY_IMU_COUNT, 0)
         val gpsCount = prefs.getLong(LoggerService.KEY_GPS_COUNT, 0)
+        val orientationCount = prefs.getLong(LoggerService.KEY_ORIENTATION_COUNT, 0)
         val startElapsed = prefs.getLong(LoggerService.KEY_START_ELAPSED_MS, 0)
         val lat = prefs.getString(LoggerService.KEY_LAT, null)
         val lon = prefs.getString(LoggerService.KEY_LON, null)
@@ -340,6 +346,9 @@ class MainActivity : Activity() {
         val gravityX = prefs.getFloat(LoggerService.KEY_GRAVITY_X, Float.NaN)
         val gravityY = prefs.getFloat(LoggerService.KEY_GRAVITY_Y, Float.NaN)
         val gravityZ = prefs.getFloat(LoggerService.KEY_GRAVITY_Z, Float.NaN)
+        val azimuthDeg = prefs.getFloat(LoggerService.KEY_AZIMUTH_DEG, Float.NaN)
+        val pitchDeg = prefs.getFloat(LoggerService.KEY_PITCH_DEG, Float.NaN)
+        val rollDeg = prefs.getFloat(LoggerService.KEY_ROLL_DEG, Float.NaN)
 
         statusText.text = if (recording) "● RECORDING" else "Idle"
         sessionText.text = buildString {
@@ -361,6 +370,17 @@ class MainActivity : Activity() {
         gyroValueText.text = "Gyroscope (rad/s)\n${formatVector(gyroX, gyroY, gyroZ)} • accuracy ${formatSensorAccuracy(gyroAccuracy)}"
         linearValueText.text = "Linear acceleration (m/s²)\n${formatVector(linearX, linearY, linearZ)}"
         gravityValueText.text = "Gravity (m/s²)\n${formatVector(gravityX, gravityY, gravityZ)}"
+
+        orientationText.text = if (azimuthDeg.isNaN() || pitchDeg.isNaN() || rollDeg.isNaN()) {
+            "Rotation vector: waiting for orientation data"
+        } else {
+            String.format(
+                Locale.US,
+                "Azimuth: %.1f° • Pitch: %+.1f° • Roll: %+.1f° • %,d samples",
+                azimuthDeg, pitchDeg, rollDeg, orientationCount
+            )
+        }
+        orientation3DView.setOrientationDegrees(azimuthDeg, pitchDeg, rollDeg)
 
         gpsPositionText.text = if (lat != null && lon != null) {
             "Latitude : $lat\nLongitude: $lon"
@@ -385,8 +405,30 @@ class MainActivity : Activity() {
         startButton.isEnabled = !recording
         stopButton.isEnabled = recording
         listOf(potholeButton, roughButton, speedBumpButton, otherButton).forEach { it.isEnabled = recording }
-        exportButton.isEnabled = !recording && !prefs.getString(LoggerService.KEY_LAST_SESSION_PATH, null).isNullOrBlank()
+        val sessionPath = prefs.getString(LoggerService.KEY_LAST_SESSION_PATH, null)
+        val hasSession = !sessionPath.isNullOrBlank() && File(sessionPath).isDirectory
+        exportButton.isEnabled = !recording && hasSession
+        routeMapButton.isEnabled = hasSession
         historyButton.isEnabled = !recording
+    }
+
+    private fun openCurrentRouteMap() {
+        val prefs = getSharedPreferences(LoggerService.PREFS, Context.MODE_PRIVATE)
+        val path = prefs.getString(LoggerService.KEY_LAST_SESSION_PATH, null)
+        val live = prefs.getBoolean(LoggerService.KEY_RECORDING, false)
+        if (path.isNullOrBlank() || !File(path).isDirectory) {
+            Toast.makeText(this, "No session route available", Toast.LENGTH_SHORT).show()
+            return
+        }
+        openRouteMap(path, live)
+    }
+
+    private fun openRouteMap(path: String, live: Boolean) {
+        startActivity(
+            Intent(this, RouteMapActivity::class.java)
+                .putExtra(RouteMapActivity.EXTRA_SESSION_PATH, path)
+                .putExtra(RouteMapActivity.EXTRA_LIVE, live)
+        )
     }
 
     private fun formatHz(value: Float): String = if (value.isNaN() || value <= 0f) "-" else String.format(Locale.US, "%.1f Hz", value)
@@ -475,13 +517,14 @@ class MainActivity : Activity() {
                 appendLine("Duration: ${formatDuration(report.optLong("duration_ms", 0L))}")
                 appendLine("Accelerometer: ${formatJsonHz(report, "accelerometer_avg_hz")}")
                 appendLine("Gyroscope: ${formatJsonHz(report, "gyroscope_avg_hz")}")
+                appendLine("Orientation samples: ${report.optLong("orientation_samples", 0)}")
                 appendLine("GPS fixes: ${report.optLong("gps_fixes", 0)}")
                 appendLine("Average GPS accuracy: ${formatJsonNumber(report, "gps_avg_accuracy_m", "m")}")
                 appendLine("Largest GPS gap: ${report.optLong("gps_max_gap_ms", 0)} ms")
                 appendLine("Total size: ${String.format(Locale.US, "%.2f MB", report.optLong("total_session_bytes", 0L) / (1024.0 * 1024.0))}")
             } else {
                 appendLine()
-                appendLine("Quality report is not available (session may be from v0.1 or incomplete).")
+                appendLine("Quality report is not available (session may be older or incomplete).")
             }
         }
 
@@ -495,6 +538,7 @@ class MainActivity : Activity() {
             .setTitle("Session detail")
             .setView(scroll)
             .setPositiveButton("Export ZIP") { _, _ -> exportSession(dir.absolutePath) }
+            .setNeutralButton("View Route") { _, _ -> openRouteMap(dir.absolutePath, false) }
             .setNegativeButton("Close", null)
             .show()
     }

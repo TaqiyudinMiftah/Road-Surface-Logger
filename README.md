@@ -133,6 +133,10 @@ Project configuration:
 
 The requested sensor period is a target. The application does not assume the phone delivers exactly that frequency. It stores every event timestamp and reports the measured average accelerometer and gyroscope frequency.
 
+## Recommended next improvements
+
+Useful next steps for field data quality are a recording-health indicator for stale/missing sensor streams, free-storage and battery monitoring, optional rotation-vector/orientation logging, and GNSS satellite-status information. These should remain monitoring or raw-acquisition features rather than automatic road-damage classification.
+
 ## Quick analysis
 
 Use:

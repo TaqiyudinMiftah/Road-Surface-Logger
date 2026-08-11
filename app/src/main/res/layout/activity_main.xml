@@ -179,7 +179,49 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="10dp"
-                android:text="Preview diperbarui sekitar 2×/detik. File CSV tetap merekam event sensor pada rate yang dipilih."
+                android:text="Preview diperbarui sekitar 5×/detik. File CSV tetap merekam event sensor pada rate yang dipilih."
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:background="@color/card_bg"
+            android:elevation="2dp"
+            android:orientation="vertical"
+            android:padding="16dp">
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:text="3D DEVICE ORIENTATION"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp"
+                android:textStyle="bold" />
+
+            <com.example.roadsurfacelogger.Orientation3DView
+                android:id="@+id/orientation3DView"
+                android:layout_width="match_parent"
+                android:layout_height="260dp"
+                android:layout_marginTop="8dp"
+                android:background="#F7F8FA" />
+
+            <TextView
+                android:id="@+id/orientationText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="8dp"
+                android:text="Rotation vector: waiting for orientation data"
+                android:textColor="@color/text_primary"
+                android:textSize="14sp" />
+
+            <TextView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="Visualisasi menggunakan rotation-vector sensor. X/Y/Z mengikuti sistem koordinat perangkat Android."
                 android:textColor="@color/text_secondary"
                 android:textSize="12sp" />
         </LinearLayout>
@@ -240,6 +282,15 @@
             android:text="STOP RECORDING"
             android:textSize="16sp"
             android:textStyle="bold" />
+
+        <Button
+            android:id="@+id/routeMapButton"
+            android:layout_width="match_parent"
+            android:layout_height="52dp"
+            android:layout_marginTop="8dp"
+            android:enabled="false"
+            android:text="OPEN ROUTE MAP"
+            android:textSize="14sp" />
 
         <TextView
             android:layout_width="match_parent"
@@ -319,7 +370,7 @@
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="16dp"
-            android:text="Nilai live hanya untuk monitoring operator. Raw sensor events dan GNSS fixes tetap disimpan independen menggunakan timestamp aslinya. Sampling frequency dihitung dari timestamp aktual; event marker tetap merupakan anotasi manual dan bukan deteksi kerusakan otomatis."
+            android:text="Nilai live dan model 3D hanya untuk monitoring operator. Raw IMU, orientation, dan GNSS disimpan independen menggunakan timestamp aslinya. Route map menggambar jejak GPS mentah dan tidak melakukan map matching/snap-to-road."
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 

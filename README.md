@@ -1,34 +1,35 @@
-# Road Surface Logger (Android)
+# Road Surface Logger (Android) — v0.2
 
-MVP Android native untuk akuisisi data kondisi jalan menggunakan sensor bawaan smartphone.
-Aplikasi **tidak melakukan deteksi pothole otomatis**. Fokusnya adalah menyimpan data mentah IMU + GNSS dengan timestamp untuk analisis offline.
+Aplikasi Android native untuk **akuisisi data penelitian kondisi jalan** menggunakan sensor bawaan smartphone. Aplikasi **tidak melakukan deteksi pothole otomatis**; fokusnya adalah merekam data mentah IMU + GNSS, metadata eksperimen, marker manual, dan laporan kualitas sesi untuk analisis offline.
 
-## Fitur
+## Fitur v0.2
 
-- Raw accelerometer
-- Raw gyroscope (jika tersedia)
-- Linear acceleration (jika tersedia)
-- Gravity sensor (jika tersedia)
+- Raw accelerometer, gyroscope, linear acceleration, dan gravity (jika tersedia)
 - GPS/GNSS latitude, longitude, altitude, speed, bearing, dan accuracy
-- Target sampling IMU 100 Hz
-- Foreground service: logging tetap berjalan saat layar mati
-- Manual event marker opsional
-- Satu folder per sesi
-- Export sesi menjadi ZIP melalui Android Storage Access Framework
+- Form **Experiment Metadata** sebelum recording
+- Sampling target yang dapat dipilih: **50 Hz / 100 Hz / 200 Hz / FASTEST**
+- Permission `HIGH_SAMPLING_RATE_SENSORS` disertakan agar mode FASTEST tidak dibatasi oleh cap sensor high-rate ketika perangkat mendukungnya
+- Live actual average sampling rate accelerometer & gyroscope
+- Live GNSS status, accuracy, speed, sample count, durasi, dan ukuran sesi
+- Marker manual: `pothole`, `rough_road`, `speed_bump`, `other`
+- Foreground service + partial wake lock untuk menjaga proses logging tetap aktif saat layar mati
+- **Recorded Sessions** untuk melihat sesi lama dan quality report
+- Export sesi terpilih menjadi ZIP melalui Android Storage Access Framework
+- `session_info.json` untuk metadata eksperimen
+- `quality_report.json` untuk pemeriksaan kualitas data setelah STOP
 - Metadata perangkat dan karakteristik sensor otomatis
-- Tidak membutuhkan server/cloud
-- Tidak membutuhkan permission penyimpanan umum
+- Tidak membutuhkan server/cloud atau permission penyimpanan umum
 
 ## Struktur output
-
-Setiap sesi dibuat sebagai:
 
 ```text
 session_YYYYMMDD_HHMMSS_SSS/
 ├── imu.csv
 ├── gps.csv
 ├── markers.csv
-└── metadata.txt
+├── session_info.json
+├── metadata.txt
+└── quality_report.json
 ```
 
 ### `imu.csv`
@@ -37,13 +38,9 @@ session_YYYYMMDD_HHMMSS_SSS/
 session_id,sensor_timestamp_ns,wall_time_ms,sensor_type,x,y,z,accuracy
 ```
 
-`sensor_timestamp_ns` menggunakan basis waktu monotonic Android (nanoseconds since boot), sama dengan basis `elapsedRealtimeNanos`. Ini adalah timestamp utama yang disarankan untuk sinkronisasi sensor.
-
-Unit:
-- accelerometer / linear acceleration / gravity: m/s²
-- gyroscope: rad/s
-
-Android device coordinate system digunakan apa adanya. Jangan mengubah orientasi HP selama eksperimen jika Anda ingin membandingkan sumbu secara langsung.
+- accelerometer / linear acceleration / gravity: `m/s²`
+- gyroscope: `rad/s`
+- `sensor_timestamp_ns` memakai basis waktu monotonic Android.
 
 ### `gps.csv`
 
@@ -51,61 +48,66 @@ Android device coordinate system digunakan apa adanya. Jangan mengubah orientasi
 session_id,elapsed_realtime_ns,wall_time_ms,provider,latitude,longitude,altitude_m,speed_mps,bearing_deg,accuracy_m,vertical_accuracy_m,speed_accuracy_mps,bearing_accuracy_deg
 ```
 
-Untuk sinkronisasi IMU ↔ GPS, gunakan `sensor_timestamp_ns` dari IMU dan `elapsed_realtime_ns` dari GPS karena keduanya berada pada basis waktu monotonic yang kompatibel.
+Untuk sinkronisasi IMU ↔ GPS gunakan `sensor_timestamp_ns` dan `elapsed_realtime_ns`.
 
 ### `markers.csv`
 
-Tombol **MARK EVENT** menambahkan marker waktu manual. Fitur ini hanya untuk anotasi/ground truth dan bukan deteksi otomatis.
+```text
+session_id,elapsed_realtime_ns,wall_time_ms,label,latitude,longitude
+```
 
-> Jangan mengoperasikan tombol ketika Anda sendiri sedang mengemudi. Gunakan penumpang/operator atau lakukan anotasi setelah eksperimen.
+Marker adalah **ground truth manual**, bukan hasil deteksi otomatis. Jangan menekan marker ketika Anda sendiri sedang mengemudi.
 
-### `metadata.txt`
+### `session_info.json`
 
-Berisi:
-- manufacturer / model HP
-- Android version
-- start timestamp
-- target sampling period
-- nama/vendor/resolution/range/min-delay sensor
-- unit data
+Menyimpan metadata penelitian seperti experiment ID, kendaraan, posisi mounting HP, orientasi HP, rute, cuaca/kondisi jalan, tekanan ban, jumlah penumpang, target kecepatan, catatan, pilihan sampling, model HP, dan versi Android.
 
-## Membuka project
+### `quality_report.json`
 
-1. Install Android Studio versi modern dengan JDK 17 dan Android SDK 36.
-2. Open folder `RoadSurfaceLogger`.
-3. Tunggu Gradle Sync.
-4. Hubungkan HP Android (USB debugging aktif) atau pilih emulator yang memiliki sensor/location simulation.
+Dibuat saat sesi dihentikan dan berisi duration, jumlah sample tiap sensor, actual average accelerometer/gyroscope Hz, jumlah GPS fixes, average GPS accuracy, largest GPS gap, ukuran file sesi, dan flag `interrupted`.
+
+Laporan ini hanya untuk **data-quality checking**, bukan klasifikasi kerusakan jalan.
+
+## Menjalankan di HP
+
+1. Clone repository dan buka dengan Android Studio.
+2. Aktifkan Developer Options + USB debugging di HP.
+3. Pastikan `adb devices -l` menampilkan HP dengan status `device`.
+4. Pilih HP sebagai deployment target.
 5. Run `app`.
-6. Saat permission muncul, pilih **Precise location**.
+6. Berikan **Precise location** saat diminta.
+7. Tekan **START NEW EXPERIMENT**, isi metadata, pilih sampling target, lalu mulai perjalanan.
 
-Project menggunakan:
+## Prosedur eksperimen yang disarankan
+
+1. Pasang HP pada holder yang rigid.
+2. Gunakan posisi dan orientasi HP yang konsisten.
+3. Catat konfigurasi kendaraan dan kondisi eksperimen melalui form metadata.
+4. Tunggu GNSS mendapatkan fix sebelum mulai rute pengujian.
+5. Hindari memindahkan HP selama recording.
+6. Marker sebaiknya dioperasikan oleh penumpang/operator.
+7. Tekan **STOP RECORDING** setelah selesai agar `quality_report.json` dibuat.
+8. Periksa **Recorded Sessions** sebelum export.
+
+## Catatan sampling
+
+Sampling period yang dipilih dikirim sebagai permintaan ke `SensorManager`. Android tidak menjamin frekuensi aktual persis sama dengan target. Karena itu aplikasi menyimpan timestamp asli setiap event, menghitung actual average Hz dari timestamp sensor, dan tidak melakukan resampling atau interpolasi di aplikasi.
+
+Untuk penelitian, preprocessing sebaiknya tetap dilakukan offline agar raw data tidak hilang.
+
+## Build configuration
+
 - Android Gradle Plugin 8.13.2
 - Kotlin 2.2.21
 - Gradle 8.13
 - compileSdk / targetSdk 36
 - minSdk 26
-
-## Prosedur eksperimen yang disarankan
-
-1. Pasang HP pada holder yang rigid.
-2. Gunakan orientasi HP yang sama untuk seluruh pengujian.
-3. Aktifkan GPS dan tunggu posisi stabil.
-4. Tekan **START RECORDING** sebelum perjalanan.
-5. Hindari memindahkan HP selama sesi.
-6. Tekan **STOP RECORDING** setelah selesai.
-7. Tekan **EXPORT LAST SESSION (.ZIP)** untuk menyimpan data ke folder yang Anda pilih.
-8. Simpan metadata eksperimen eksternal seperti kendaraan, tekanan ban, posisi holder, cuaca, rute, dan jumlah penumpang.
-
-## Catatan sampling
-
-`10,000 us` diminta ke `SensorManager`, yang setara target sekitar 100 Hz. Android memperlakukan sampling period sebagai permintaan; frekuensi aktual dapat berbeda tergantung hardware/OS. Karena itu aplikasi menyimpan timestamp setiap event dan tidak mengasumsikan interval selalu 10 ms.
+- JDK 17
 
 ## Analisis cepat
-
-File `tools/inspect_session.py` dapat digunakan untuk menghitung estimasi sampling rate accelerometer dan ringkasan GPS:
 
 ```bash
 python tools/inspect_session.py /path/to/session_folder
 ```
 
-Memerlukan Python 3 dan pandas.
+Memerlukan Python 3 dan pandas. Script akan membaca `session_info.json` dan `quality_report.json` jika tersedia, tetapi tetap kompatibel dengan sesi v0.1.

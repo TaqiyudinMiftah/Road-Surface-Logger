@@ -22,7 +22,7 @@ Research-oriented Android application for acquiring road-condition data from sma
 - No server/cloud required
 - No general storage permission required
 
-The live dashboard is intended only for operator monitoring and is refreshed at a much lower rate than the raw sensor stream. The CSV files continue to preserve the original sensor event timestamps and requested acquisition rate.
+The live dashboard is intended only for operator monitoring and is refreshed at approximately 2 Hz. The CSV files continue to preserve the original sensor event timestamps and requested acquisition rate, so the lower-rate UI preview does not downsample the recorded dataset.
 
 ## Session output
 

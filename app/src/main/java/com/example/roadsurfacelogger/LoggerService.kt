@@ -31,6 +31,7 @@ import java.io.FileWriter
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
+import kotlin.math.sqrt
 
 class LoggerService : Service(), SensorEventListener, LocationListener {
 
@@ -86,6 +87,10 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         const val KEY_GRAVITY_X = "gravity_x"
         const val KEY_GRAVITY_Y = "gravity_y"
         const val KEY_GRAVITY_Z = "gravity_z"
+        const val KEY_AZIMUTH_DEG = "azimuth_deg"
+        const val KEY_PITCH_DEG = "pitch_deg"
+        const val KEY_ROLL_DEG = "roll_deg"
+        const val KEY_ORIENTATION_COUNT = "orientation_count"
 
         private const val CHANNEL_ID = "road_logger_channel"
         private const val NOTIFICATION_ID = 1001
@@ -134,6 +139,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
     private var imuWriter: BufferedWriter? = null
     private var gpsWriter: BufferedWriter? = null
     private var markerWriter: BufferedWriter? = null
+    private var orientationWriter: BufferedWriter? = null
 
     @Volatile
     private var recording = false
@@ -147,8 +153,9 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
     private var gpsCount = 0L
     private var linearCount = 0L
     private var gravityCount = 0L
+    private var orientationCount = 0L
     private var imuSinceFlush = 0
-    private var gpsSinceFlush = 0
+    private var orientationSinceFlush = 0
     private var lastMetricsPublishMs = 0L
     private var latestLocation: Location? = null
 
@@ -158,7 +165,12 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
     private val latestGravity = FloatArray(3) { Float.NaN }
     private var latestAccelAccuracy = -1
     private var latestGyroAccuracy = -1
+    private var latestAzimuthDeg = Float.NaN
+    private var latestPitchDeg = Float.NaN
+    private var latestRollDeg = Float.NaN
 
+    private val rotationMatrix = FloatArray(9)
+    private val orientationAngles = FloatArray(3)
     private val accelTiming = SensorTiming()
     private val gyroTiming = SensorTiming()
     private var gpsAccuracySum = 0.0
@@ -183,12 +195,10 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
                 startAsForeground()
                 worker.post { beginRecording(requestedConfig) }
             }
-
             ACTION_MARK -> if (recording) {
                 val label = intent.getStringExtra(EXTRA_MARK_LABEL)?.trim().orEmpty().ifBlank { "other" }
                 worker.post { writeMarker(label) }
             }
-
             ACTION_STOP -> if (recording) {
                 worker.post { finishRecording() }
             } else {
@@ -245,6 +255,10 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             write("session_id,elapsed_realtime_ns,wall_time_ms,label,latitude,longitude\n")
             flush()
         }
+        orientationWriter = BufferedWriter(FileWriter(File(sessionDir, "orientation.csv"))).apply {
+            write("session_id,sensor_timestamp_ns,wall_time_ms,quat_x,quat_y,quat_z,quat_w,azimuth_deg,pitch_deg,roll_deg,heading_accuracy_rad\n")
+            flush()
+        }
 
         resetMetrics()
         acquireWakeLock()
@@ -259,12 +273,16 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .putString(KEY_LAST_SESSION_PATH, sessionDir!!.absolutePath)
             .putLong(KEY_IMU_COUNT, 0)
             .putLong(KEY_GPS_COUNT, 0)
+            .putLong(KEY_ORIENTATION_COUNT, 0)
             .putLong(KEY_START_ELAPSED_MS, SystemClock.elapsedRealtime())
             .putFloat(KEY_ACCEL_HZ, Float.NaN)
             .putFloat(KEY_GYRO_HZ, Float.NaN)
             .putFloat(KEY_SPEED_MPS, Float.NaN)
             .putFloat(KEY_ALTITUDE_M, Float.NaN)
             .putFloat(KEY_BEARING_DEG, Float.NaN)
+            .putFloat(KEY_AZIMUTH_DEG, Float.NaN)
+            .putFloat(KEY_PITCH_DEG, Float.NaN)
+            .putFloat(KEY_ROLL_DEG, Float.NaN)
             .putLong(KEY_GPS_FIX_ELAPSED_MS, 0L)
             .putLong(KEY_SESSION_BYTES, 0)
             .remove(KEY_LAT)
@@ -282,8 +300,9 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         gpsCount = 0
         linearCount = 0
         gravityCount = 0
+        orientationCount = 0
         imuSinceFlush = 0
-        gpsSinceFlush = 0
+        orientationSinceFlush = 0
         lastMetricsPublishMs = 0
         latestLocation = null
         resetVector(latestAccel)
@@ -292,6 +311,9 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         resetVector(latestGravity)
         latestAccelAccuracy = -1
         latestGyroAccuracy = -1
+        latestAzimuthDeg = Float.NaN
+        latestPitchDeg = Float.NaN
+        latestRollDeg = Float.NaN
         accelTiming.count = 0
         accelTiming.firstTimestampNs = 0
         accelTiming.lastTimestampNs = 0
@@ -300,8 +322,8 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         gyroTiming.lastTimestampNs = 0
         gpsAccuracySum = 0.0
         gpsAccuracyCount = 0
-        lastGpsElapsedNs = 0
-        maxGpsGapNs = 0
+        lastGpsElapsedNs = 0L
+        maxGpsGapNs = 0L
     }
 
     private fun resetVector(target: FloatArray) {
@@ -320,7 +342,8 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             Sensor.TYPE_ACCELEROMETER,
             Sensor.TYPE_GYROSCOPE,
             Sensor.TYPE_LINEAR_ACCELERATION,
-            Sensor.TYPE_GRAVITY
+            Sensor.TYPE_GRAVITY,
+            Sensor.TYPE_ROTATION_VECTOR
         ).forEach { type ->
             sensorManager.getDefaultSensor(type)?.let { sensor ->
                 sensorManager.registerListener(this, sensor, config.sensorPeriodUs, 0, worker)
@@ -339,10 +362,14 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
 
     override fun onSensorChanged(event: SensorEvent) {
         if (!recording || event.values.size < 3) return
+        if (event.sensor.type == Sensor.TYPE_ROTATION_VECTOR) {
+            writeOrientation(event)
+            return
+        }
+
         val writer = imuWriter ?: return
         val wallTimeMs = sessionStartWallMs + ((event.timestamp - sessionStartElapsedNs) / 1_000_000L)
         val sensorName = sensorTypeName(event.sensor.type)
-
         writer.write(
             String.format(
                 Locale.US,
@@ -385,6 +412,47 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         publishMetrics()
     }
 
+    private fun writeOrientation(event: SensorEvent) {
+        val writer = orientationWriter ?: return
+        SensorManager.getRotationMatrixFromVector(rotationMatrix, event.values)
+        SensorManager.getOrientation(rotationMatrix, orientationAngles)
+
+        latestAzimuthDeg = ((Math.toDegrees(orientationAngles[0].toDouble()) + 360.0) % 360.0).toFloat()
+        latestPitchDeg = Math.toDegrees(orientationAngles[1].toDouble()).toFloat()
+        latestRollDeg = Math.toDegrees(orientationAngles[2].toDouble()).toFloat()
+
+        val qx = event.values[0]
+        val qy = event.values[1]
+        val qz = event.values[2]
+        val qw = if (event.values.size > 3) {
+            event.values[3]
+        } else {
+            sqrt((1f - qx * qx - qy * qy - qz * qz).coerceAtLeast(0f))
+        }
+        val headingAccuracy = if (event.values.size > 4) event.values[4] else Float.NaN
+        val wallTimeMs = sessionStartWallMs + ((event.timestamp - sessionStartElapsedNs) / 1_000_000L)
+
+        writer.write(
+            String.format(
+                Locale.US,
+                "%s,%d,%d,%.9f,%.9f,%.9f,%.9f,%.4f,%.4f,%.4f,%.7f\n",
+                sessionId,
+                event.timestamp,
+                wallTimeMs,
+                qx, qy, qz, qw,
+                latestAzimuthDeg, latestPitchDeg, latestRollDeg,
+                headingAccuracy
+            )
+        )
+        orientationCount++
+        orientationSinceFlush++
+        if (orientationSinceFlush >= 50) {
+            writer.flush()
+            orientationSinceFlush = 0
+        }
+        publishMetrics()
+    }
+
     override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) = Unit
 
     override fun onLocationChanged(location: Location) {
@@ -418,6 +486,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
                 bearingAccuracy
             )
         )
+        writer.flush()
 
         gpsCount++
         gpsAccuracySum += location.accuracy
@@ -427,12 +496,6 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             if (gap > maxGpsGapNs) maxGpsGapNs = gap
         }
         lastGpsElapsedNs = location.elapsedRealtimeNanos
-
-        gpsSinceFlush++
-        if (gpsSinceFlush >= 10) {
-            writer.flush()
-            gpsSinceFlush = 0
-        }
         publishMetrics(force = true)
     }
 
@@ -460,7 +523,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
 
     private fun publishMetrics(force: Boolean = false) {
         val now = SystemClock.elapsedRealtime()
-        if (!force && now - lastMetricsPublishMs < 500) return
+        if (!force && now - lastMetricsPublishMs < 200L) return
         lastMetricsPublishMs = now
 
         val accelHz = accelTiming.averageHz()?.toFloat() ?: Float.NaN
@@ -470,6 +533,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         val edit = getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
             .putLong(KEY_IMU_COUNT, imuCount)
             .putLong(KEY_GPS_COUNT, gpsCount)
+            .putLong(KEY_ORIENTATION_COUNT, orientationCount)
             .putFloat(KEY_ACCEL_HZ, accelHz)
             .putFloat(KEY_GYRO_HZ, gyroHz)
             .putLong(KEY_SESSION_BYTES, sessionBytes)
@@ -487,6 +551,9 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .putFloat(KEY_GRAVITY_X, latestGravity[0])
             .putFloat(KEY_GRAVITY_Y, latestGravity[1])
             .putFloat(KEY_GRAVITY_Z, latestGravity[2])
+            .putFloat(KEY_AZIMUTH_DEG, latestAzimuthDeg)
+            .putFloat(KEY_PITCH_DEG, latestPitchDeg)
+            .putFloat(KEY_ROLL_DEG, latestRollDeg)
 
         latestLocation?.let { loc ->
             edit.putString(KEY_LAT, String.format(Locale.US, "%.7f", loc.latitude))
@@ -516,9 +583,11 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         imuWriter?.runCatching { flush(); close() }
         gpsWriter?.runCatching { flush(); close() }
         markerWriter?.runCatching { flush(); close() }
+        orientationWriter?.runCatching { flush(); close() }
         imuWriter = null
         gpsWriter = null
         markerWriter = null
+        orientationWriter = null
 
         writeQualityReport(interrupted)
         releaseWakeLock()
@@ -527,6 +596,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .putBoolean(KEY_RECORDING, false)
             .putLong(KEY_IMU_COUNT, imuCount)
             .putLong(KEY_GPS_COUNT, gpsCount)
+            .putLong(KEY_ORIENTATION_COUNT, orientationCount)
             .putFloat(KEY_ACCEL_HZ, accelTiming.averageHz()?.toFloat() ?: Float.NaN)
             .putFloat(KEY_GYRO_HZ, gyroTiming.averageHz()?.toFloat() ?: Float.NaN)
             .putLong(KEY_SESSION_BYTES, finalBytes)
@@ -543,15 +613,13 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
     }
 
     private fun releaseWakeLock() {
-        wakeLock?.let { lock ->
-            if (lock.isHeld) lock.release()
-        }
+        wakeLock?.let { lock -> if (lock.isHeld) lock.release() }
         wakeLock = null
     }
 
     private fun writeSessionInfo() {
         val json = JSONObject()
-            .put("schema_version", 2)
+            .put("schema_version", 3)
             .put("session_id", sessionId)
             .put("experiment_id", config.experimentId)
             .put("start_wall_time_ms", sessionStartWallMs)
@@ -572,14 +640,13 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .put("device", Build.DEVICE)
             .put("android_release", Build.VERSION.RELEASE)
             .put("sdk_int", Build.VERSION.SDK_INT)
-
         File(sessionDir, "session_info.json").writeText(json.toString(2))
     }
 
     private fun writeQualityReport(interrupted: Boolean) {
         val durationMs = ((SystemClock.elapsedRealtimeNanos() - sessionStartElapsedNs) / 1_000_000L).coerceAtLeast(0L)
         val json = JSONObject()
-            .put("schema_version", 1)
+            .put("schema_version", 2)
             .put("session_id", sessionId)
             .put("interrupted", interrupted)
             .put("duration_ms", durationMs)
@@ -591,6 +658,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .put("gyroscope_samples", gyroTiming.count)
             .put("linear_acceleration_samples", linearCount)
             .put("gravity_samples", gravityCount)
+            .put("orientation_samples", orientationCount)
             .put("gps_fixes", gpsCount)
             .put("gps_max_gap_ms", maxGpsGapNs / 1_000_000L)
 
@@ -602,6 +670,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         json.put("imu_csv_bytes", File(dir, "imu.csv").takeIf { it.isFile }?.length() ?: 0L)
         json.put("gps_csv_bytes", File(dir, "gps.csv").takeIf { it.isFile }?.length() ?: 0L)
         json.put("markers_csv_bytes", File(dir, "markers.csv").takeIf { it.isFile }?.length() ?: 0L)
+        json.put("orientation_csv_bytes", File(dir, "orientation.csv").takeIf { it.isFile }?.length() ?: 0L)
 
         val reportFile = File(dir, "quality_report.json")
         reportFile.writeText(json.toString(2))
@@ -632,6 +701,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             out.appendLine("imu_coordinate_system=Android device coordinate system")
             out.appendLine("accelerometer_unit=m/s^2")
             out.appendLine("gyroscope_unit=rad/s")
+            out.appendLine("orientation_angles_unit=degrees")
             out.appendLine("gps_speed_unit=m/s")
             out.appendLine("gps_altitude_unit=m")
             out.appendLine()
@@ -640,7 +710,8 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
                 Sensor.TYPE_ACCELEROMETER,
                 Sensor.TYPE_GYROSCOPE,
                 Sensor.TYPE_LINEAR_ACCELERATION,
-                Sensor.TYPE_GRAVITY
+                Sensor.TYPE_GRAVITY,
+                Sensor.TYPE_ROTATION_VECTOR
             ).forEach { type ->
                 val sensor = sensorManager.getDefaultSensor(type)
                 val prefix = "sensor.${sensorTypeName(type)}"
@@ -665,6 +736,7 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         Sensor.TYPE_GYROSCOPE -> "gyroscope"
         Sensor.TYPE_LINEAR_ACCELERATION -> "linear_acceleration"
         Sensor.TYPE_GRAVITY -> "gravity"
+        Sensor.TYPE_ROTATION_VECTOR -> "rotation_vector"
         else -> "sensor_$type"
     }
 

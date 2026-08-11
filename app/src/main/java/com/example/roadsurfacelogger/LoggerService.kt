@@ -66,9 +66,26 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         const val KEY_GPS_ACCURACY = "gps_accuracy"
         const val KEY_GPS_PROVIDER = "gps_provider"
         const val KEY_SPEED_MPS = "speed_mps"
+        const val KEY_ALTITUDE_M = "altitude_m"
+        const val KEY_BEARING_DEG = "bearing_deg"
+        const val KEY_GPS_FIX_ELAPSED_MS = "gps_fix_elapsed_ms"
         const val KEY_ACCEL_HZ = "accel_hz"
         const val KEY_GYRO_HZ = "gyro_hz"
         const val KEY_SESSION_BYTES = "session_bytes"
+        const val KEY_ACCEL_X = "accel_x"
+        const val KEY_ACCEL_Y = "accel_y"
+        const val KEY_ACCEL_Z = "accel_z"
+        const val KEY_ACCEL_ACCURACY = "accel_accuracy"
+        const val KEY_GYRO_X = "gyro_x"
+        const val KEY_GYRO_Y = "gyro_y"
+        const val KEY_GYRO_Z = "gyro_z"
+        const val KEY_GYRO_ACCURACY = "gyro_accuracy"
+        const val KEY_LINEAR_X = "linear_x"
+        const val KEY_LINEAR_Y = "linear_y"
+        const val KEY_LINEAR_Z = "linear_z"
+        const val KEY_GRAVITY_X = "gravity_x"
+        const val KEY_GRAVITY_Y = "gravity_y"
+        const val KEY_GRAVITY_Z = "gravity_z"
 
         private const val CHANNEL_ID = "road_logger_channel"
         private const val NOTIFICATION_ID = 1001
@@ -134,6 +151,13 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
     private var gpsSinceFlush = 0
     private var lastMetricsPublishMs = 0L
     private var latestLocation: Location? = null
+
+    private val latestAccel = FloatArray(3) { Float.NaN }
+    private val latestGyro = FloatArray(3) { Float.NaN }
+    private val latestLinear = FloatArray(3) { Float.NaN }
+    private val latestGravity = FloatArray(3) { Float.NaN }
+    private var latestAccelAccuracy = -1
+    private var latestGyroAccuracy = -1
 
     private val accelTiming = SensorTiming()
     private val gyroTiming = SensorTiming()
@@ -239,6 +263,9 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .putFloat(KEY_ACCEL_HZ, Float.NaN)
             .putFloat(KEY_GYRO_HZ, Float.NaN)
             .putFloat(KEY_SPEED_MPS, Float.NaN)
+            .putFloat(KEY_ALTITUDE_M, Float.NaN)
+            .putFloat(KEY_BEARING_DEG, Float.NaN)
+            .putLong(KEY_GPS_FIX_ELAPSED_MS, 0L)
             .putLong(KEY_SESSION_BYTES, 0)
             .remove(KEY_LAT)
             .remove(KEY_LON)
@@ -259,6 +286,12 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         gpsSinceFlush = 0
         lastMetricsPublishMs = 0
         latestLocation = null
+        resetVector(latestAccel)
+        resetVector(latestGyro)
+        resetVector(latestLinear)
+        resetVector(latestGravity)
+        latestAccelAccuracy = -1
+        latestGyroAccuracy = -1
         accelTiming.count = 0
         accelTiming.firstTimestampNs = 0
         accelTiming.lastTimestampNs = 0
@@ -269,6 +302,17 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
         gpsAccuracyCount = 0
         lastGpsElapsedNs = 0
         maxGpsGapNs = 0
+    }
+
+    private fun resetVector(target: FloatArray) {
+        target.indices.forEach { target[it] = Float.NaN }
+    }
+
+    private fun copyVector(target: FloatArray, values: FloatArray) {
+        if (values.size < 3) return
+        target[0] = values[0]
+        target[1] = values[1]
+        target[2] = values[2]
     }
 
     private fun registerSensors() {
@@ -313,10 +357,24 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
 
         imuCount++
         when (event.sensor.type) {
-            Sensor.TYPE_ACCELEROMETER -> accelTiming.add(event.timestamp)
-            Sensor.TYPE_GYROSCOPE -> gyroTiming.add(event.timestamp)
-            Sensor.TYPE_LINEAR_ACCELERATION -> linearCount++
-            Sensor.TYPE_GRAVITY -> gravityCount++
+            Sensor.TYPE_ACCELEROMETER -> {
+                accelTiming.add(event.timestamp)
+                copyVector(latestAccel, event.values)
+                latestAccelAccuracy = event.accuracy
+            }
+            Sensor.TYPE_GYROSCOPE -> {
+                gyroTiming.add(event.timestamp)
+                copyVector(latestGyro, event.values)
+                latestGyroAccuracy = event.accuracy
+            }
+            Sensor.TYPE_LINEAR_ACCELERATION -> {
+                linearCount++
+                copyVector(latestLinear, event.values)
+            }
+            Sensor.TYPE_GRAVITY -> {
+                gravityCount++
+                copyVector(latestGravity, event.values)
+            }
         }
 
         imuSinceFlush++
@@ -415,6 +473,20 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
             .putFloat(KEY_ACCEL_HZ, accelHz)
             .putFloat(KEY_GYRO_HZ, gyroHz)
             .putLong(KEY_SESSION_BYTES, sessionBytes)
+            .putFloat(KEY_ACCEL_X, latestAccel[0])
+            .putFloat(KEY_ACCEL_Y, latestAccel[1])
+            .putFloat(KEY_ACCEL_Z, latestAccel[2])
+            .putInt(KEY_ACCEL_ACCURACY, latestAccelAccuracy)
+            .putFloat(KEY_GYRO_X, latestGyro[0])
+            .putFloat(KEY_GYRO_Y, latestGyro[1])
+            .putFloat(KEY_GYRO_Z, latestGyro[2])
+            .putInt(KEY_GYRO_ACCURACY, latestGyroAccuracy)
+            .putFloat(KEY_LINEAR_X, latestLinear[0])
+            .putFloat(KEY_LINEAR_Y, latestLinear[1])
+            .putFloat(KEY_LINEAR_Z, latestLinear[2])
+            .putFloat(KEY_GRAVITY_X, latestGravity[0])
+            .putFloat(KEY_GRAVITY_Y, latestGravity[1])
+            .putFloat(KEY_GRAVITY_Z, latestGravity[2])
 
         latestLocation?.let { loc ->
             edit.putString(KEY_LAT, String.format(Locale.US, "%.7f", loc.latitude))
@@ -422,6 +494,9 @@ class LoggerService : Service(), SensorEventListener, LocationListener {
                 .putFloat(KEY_GPS_ACCURACY, loc.accuracy)
                 .putString(KEY_GPS_PROVIDER, loc.provider ?: "unknown")
                 .putFloat(KEY_SPEED_MPS, if (loc.hasSpeed()) loc.speed else Float.NaN)
+                .putFloat(KEY_ALTITUDE_M, if (loc.hasAltitude()) loc.altitude.toFloat() else Float.NaN)
+                .putFloat(KEY_BEARING_DEG, if (loc.hasBearing()) loc.bearing else Float.NaN)
+                .putLong(KEY_GPS_FIX_ELAPSED_MS, loc.elapsedRealtimeNanos / 1_000_000L)
         }
         edit.apply()
     }
